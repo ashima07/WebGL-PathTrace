@@ -1,0 +1,647 @@
+<html>
+
+<head>
+<title>Ray tracer using WebGL</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+<script type="text/javascript" src="utilityFunctions.js"></script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+	precision mediump float;
+    varying vec3 vPosition;
+	uniform vec3 cameraPos;
+	uniform float time;
+  
+	struct RAY
+	{
+		vec3 origin;
+		vec3 dir;
+		bool isInside;
+		float IOR;
+	};
+	struct GEOM
+	{
+		vec3 p;//position
+		vec3 scale;
+		vec3 rotation;
+		vec3 col;
+		int type;
+		int reflective;
+		int refractive;	
+		float indexOfRefraction;		
+	};
+	
+	struct INTERSECT{
+	  vec3 ptOfIntersection;
+	  vec3 normal;
+	  vec3 color;
+	  int reflective;//identify whether the currently intersected object is reflective
+	  int refractive;
+	  float indexOfRefraction;
+	
+	};
+	
+	GEOM geomList[4];
+	const int numberOfObjects = 4;
+    const vec3 lightDir = vec3(0.577350269, 0.577350269, -0.577350269);
+    float sphereRad = 1.0;
+
+	void initializeGeometry(){
+		  geomList[0].p = vec3(-3.0,1.0,1.0);
+		  geomList[0].col = vec3(1,0,0);
+		  geomList[0].type = 0 ;//sphere
+		  geomList[0].reflective = 1;//not reflective
+		  geomList[0].refractive = 0;//not refractive
+		  geomList[0].indexOfRefraction = 2.0;
+		  
+		  geomList[1].p = vec3(5.0,-0.5,1.0);
+		  geomList[1].col = vec3(0,1,0);
+		  geomList[1].type = 0 ;//sphere
+		  geomList[1].reflective = 0;//not reflective
+		  geomList[1].refractive = 0;//not refractive
+		  geomList[1].indexOfRefraction = 2.2;
+		 
+		  geomList[2].p = vec3(5.0,3.2,1.0);
+		  geomList[2].col = vec3(0,0,1);
+		  geomList[2].type = 0 ;//sphere
+		  geomList[2].reflective = 1;//not reflective
+		  geomList[2].refractive = 0;//not refractive
+		  geomList[2].indexOfRefraction = 2.5;
+		 
+		 
+		  geomList[3].p = vec3(0.0,-1.5, 0.0);
+		  geomList[3].col = vec3(1,1,0);
+		  geomList[3].type = 1 ;//plane
+		  geomList[3].reflective = 1;//not reflective
+		  geomList[3].refractive = 0;//not refractive
+		  geomList[3].indexOfRefraction = 2.0;
+		  
+		  
+		/*  geomList[4].p = vec3(1.5,-0.5, 2.0);
+		  geomList[4].col = vec3(0,1,0);
+		  geomList[4].type = 2 ;//cube
+		  geomList[4].reflective = 0;//not reflective
+		  geomList[4].refractive = 0;//not refractive*/
+	 
+	 
+	}
+  
+	float intersectPlane(vec3 center, vec3 rStart, vec3 rDir, out float t,  out vec3 normal, out vec3 pos, out vec3 color)
+	{
+		vec3 n = vec3(0,1,0);
+		vec3 col = vec3(1,1,1);
+		float d = -dot(center, n);
+		float v = dot(rDir, n);
+		if (abs(v) < 1.0e-6)
+			return -1.; // the plane is parallel to the ray.
+
+		t = -(dot(rStart, n) + d) / v;
+
+		if ( (t > 0.0))
+		{
+			pos = rStart + t * rDir;		
+			float offset = 0.2;
+			vec3 dp = pos + offset;
+			if ((mod(dp.x, 1.0) > 0.5 && mod(dp.z, 1.0) > 0.5)
+			||  (mod(dp.x, 1.0) < 0.5 && mod(dp.z, 1.0) < 0.5))
+				color = col;
+			else
+				color  = col * 0.5;			
+			normal = n;
+			return  length(rStart - pos);
+		}
+		return -1.;
+	}
+  
+	float intersectSphere(vec3 center, vec3 rStart, vec3 rDir, out float t,  out vec3 normal, out vec3 pos) {
+		vec3 rOrigin = center - rStart;
+		float b = dot(rDir, rOrigin);
+		float d = b*b - dot(rOrigin, rOrigin) + sphereRad * sphereRad;
+		if (d < 0.0) {
+			return -1.0;
+		}
+		t = b - sqrt(d);
+		if (t < 0.0) {
+			return -1.0;
+		}
+		pos = rStart + t * rDir;
+		normal = pos - center;
+		float len = length(rStart - pos);
+		return len;
+	}
+  
+  float intersectCube(vec3 center, vec3 rStart, vec3 rDir, out float t, out vec3 normal, out vec3 pos){
+    vec3 currentNormal = vec3(0,0,0);
+	vec3 ro = rStart - center ;
+	vec3 rd = rDir;
+      	
+	vec3 bl, bh;
+	bl = vec3(-0.5, -0.5, -0.5);
+	bh = vec3(0.5,0.5, 0.5);
+
+	int coordN=0; // = 0 si X, = 1 si Y, = 2 si Z
+	int coordF=0; // = 0 si X, = 1 si Y, = 2 si Z
+
+	float tnear, tfar, t1, t2, temp;
+	tnear = -1000000.0;
+	tfar = 1000000.0;
+	float epsilon = 0.001;
+	if(abs(rd.x) <= epsilon && (ro.x < bl.x || ro.x > bh.x))
+		return -1.;
+
+	else
+	{
+		t1 = (bl.x - ro.x)/rd.x;
+		t2 = (bh.x - ro.x)/rd.x;
+
+		if(t1 > t2)
+		{
+			temp = t1;
+			t1 = t2;
+			t2 = temp;
+		}
+
+		if(t1 > tnear)
+		{
+			coordN = 0;
+			tnear = t1;
+		}
+
+		if(t2 < tfar){
+			coordF = 0;
+			tfar = t2;
+		}
+
+		if(tnear > tfar)
+			return -1.;
+
+		if(tfar < epsilon)
+			return -1.;
+	}
+
+	if(abs(rd.y) <= epsilon && (ro.y < bl.y || ro.y > bh.y))
+		return -1.;
+
+	else
+	{
+		t1 = (bl.y - ro.y)/rd.y;
+		t2 = (bh.y - ro.y)/rd.y;
+
+		if(t1 > t2)
+		{
+			temp = t1;
+			t1 = t2;
+			t2 = temp;
+		}
+
+		if(t1 > tnear){
+			 coordN = 1;
+			tnear = t1;
+		}
+
+		if(t2 < tfar){
+			 coordF = 1;
+			tfar = t2;
+		}
+
+		if(tnear > tfar)
+			return -1.;
+
+		if(tfar < epsilon)
+			return -1.;
+	}
+
+	if(abs(rd.z) <= epsilon && (ro.z < bl.z || ro.z > bh.z))
+		return -1.;
+
+	else
+	{
+		t1 = (bl.z - ro.z)/rd.z;
+		t2 = (bh.z - ro.z)/rd.z;
+
+		if(t1 > t2)
+		{
+			temp = t1;
+			t1 = t2;
+			t2 = temp;
+		}
+
+		if(t1 > tnear){
+			coordN = 2;
+			tnear = t1;
+		}
+
+		if(t2 < tfar){
+			coordF = 2;
+			tfar = t2;
+		}
+
+		if(tnear > tfar)
+			return -1.;
+
+		if(tfar < epsilon)
+			return -1.;
+	}
+	
+	if(abs(tnear) < epsilon)
+		return -1.;
+	float epsilon1= 0.0;
+	if(tnear < tfar)
+	{
+		vec3 point = vec3(ro.x + tnear*rd.x, ro.y + tnear*rd.y, ro.z + tnear*rd.z);
+		vec3 norm = vec3(0.0,0.0,0.0);
+		if(abs( point.x - 0.5 ) < epsilon1)
+			norm = vec3(1.0, 0.0, 0.0);
+		
+		if(abs( point.x + 0.5 ) < epsilon1)
+			norm = vec3(-1.0, 0.0, 0.0);
+		
+		if( abs( point.y - 0.5 ) < epsilon1 )
+			norm = vec3(0.0, 1.0, 0.0);
+		
+		if( abs( point.y + 0.5 ) < epsilon1 )
+			norm = vec3(0.0, -1.0, 0.0);
+		
+		if(abs( point.z - 0.5 ) < epsilon1)
+			norm = vec3(0.0, 0.0, 1.0);
+		
+		if(abs( point.z + 0.5 ) < epsilon1)
+			norm = vec3(0.0, 0.0, -1.0);
+
+		normal =  norm;
+        pos = point;
+		t = tnear;
+		return length(rStart - pos);;
+	}
+	
+	if(abs(tfar) < epsilon)
+		return -1.;
+
+	if(tfar > epsilon)
+	{
+		vec3 point = vec3(ro.x + tfar*rd.x, ro.y + tfar*rd.y, ro.z + tfar*rd.z);
+		vec3 norm = vec3(0.0,0.0,0.0);
+		if(abs( point.x - 0.5 ) < epsilon1)
+			norm = vec3(1.0, 0.0, 0.0);
+		
+		if(abs( point.x + 0.5 ) < epsilon1)
+			norm = vec3(-1.0, 0.0, 0.0);
+		
+		if( abs( point.y - 0.5 ) < epsilon1 )
+			norm = vec3(0.0, 1.0, 0.0);
+		
+		if( abs( point.y + 0.5 ) < epsilon1 )
+			norm = vec3(0.0, -1.0, 0.0);
+		
+		if(abs( point.z - 0.5 ) < epsilon1)
+			norm = vec3(0.0, 0.0, 1.0);
+		
+		if(abs( point.z + 0.5 ) < epsilon1)
+			norm = vec3(0.0, 0.0, -1.0);
+
+		normal =  norm;
+		pos = point;
+		t = tfar;
+		return length(rStart - pos);;
+	}
+   return -1.;
+  }
+
+  bool intersectWorld(RAY r, inout INTERSECT intersect) {
+    float t;
+    float hitPointDistance = -1.0;
+	float closestIntersectionDistance = 100000.0;
+   	vec3 tempNormal = vec3(0);
+	vec3 tempIntersectionPoint = vec3(0);
+	vec3 tempColor = vec3(0,0,0);
+	vec3 planeColor = vec3(0,0,0);
+	for(int i =0;i<numberOfObjects;i++){	
+		if(geomList[i].type == 0){
+			hitPointDistance = intersectSphere(geomList[i].p, r.origin, r.dir, t, tempNormal, tempIntersectionPoint);
+		}else if(geomList[i].type == 1){
+		    hitPointDistance = intersectPlane(geomList[i].p, r.origin, r.dir, t, tempNormal, tempIntersectionPoint, planeColor);
+		}else if(geomList[i].type == 2){
+		    hitPointDistance = intersectCube(geomList[i].p, r.origin, r.dir, t, tempNormal, tempIntersectionPoint);
+		}
+	          
+		if(hitPointDistance > 0.0)
+		{
+			if(hitPointDistance < closestIntersectionDistance)
+			{
+				closestIntersectionDistance = hitPointDistance;
+				if(i == 3){
+				  tempColor = planeColor;
+				}else if(i== 4){
+				   tempColor = vec3(0,0,1);
+				}else
+					tempColor = geomList[i].col;
+					intersect.normal = tempNormal;
+					intersect.ptOfIntersection = tempIntersectionPoint;
+					intersect.color = tempColor;
+					intersect.reflective = geomList[i].reflective;
+					intersect.refractive = geomList[i].refractive;
+					intersect.indexOfRefraction = geomList[i].indexOfRefraction;
+			}
+		}
+			
+	}
+    if (closestIntersectionDistance > -1.0){
+		return true;
+    }else {
+     return false;
+    }
+  }
+  
+
+  float random(vec3 scale, float seed) {
+	return fract(sin(dot(vPosition + seed, scale)) * 43758.5453 + seed);
+  }
+  
+  vec3 cosineWeightedDirection(float seed, vec3 normal) {
+	   float u = random(vec3(12.9898, 78.233, 151.7182), seed);
+	   float v = random(vec3(63.7264, 10.873, 623.6736), seed);
+	   float r = sqrt(u);
+	   float angle = 60.283185307179586 * v;
+	   // compute basis from normal
+	   vec3 sdir, tdir;
+	   if (abs(normal.x)<.5) {
+		 sdir = cross(normal, vec3(1,0,0));
+	   } else {
+		 sdir = cross(normal, vec3(0,1,0));
+	   }
+	   tdir = cross(normal, sdir);
+	   return r*cos(angle)*sdir + r*sin(angle)*tdir + sqrt(1.-u)*normal;
+ }
+  
+  vec3 pathTrace(inout RAY r, int rayDepth){
+    vec3 col = vec3(0,0,0);
+	INTERSECT intersect;
+	if (intersectWorld(r, intersect)) {	
+
+         if(intersect.refractive == 0 &&	intersect.reflective == 0){//diffuse
+		 		   
+			 //phong highlight
+				float cosAngle = max(dot( r.dir, lightDir - 2.0 * dot( lightDir, intersect.normal ) * intersect.normal ),0.0);
+				if (cosAngle > 0.0)
+				{
+					float spec = pow( cosAngle, 30.0) * dot(vec3(1),intersect.color) ;
+					col += spec * vec3(1);
+				}
+			  float diffuse =(max(dot( lightDir, intersect.normal ),0.0));	  
+			  col += 0.1+0.9* intersect.color * diffuse ;		 
+			  r.origin = intersect.ptOfIntersection;
+			  r.dir = cosineWeightedDirection(500.0 * float(rayDepth), intersect.normal);
+		  }else if(intersect.reflective >0){//reflective
+			  float diffuse =(max(dot( lightDir, intersect.normal ),0.0));	  
+			  col = 0.1+0.9* intersect.color * diffuse ;
+			  r.origin = intersect.ptOfIntersection;
+		      r.dir = r.dir - 2.0 * dot(intersect.normal, r.dir ) * intersect.normal ;
+		      
+		  }else if(intersect.refractive >0){	//refractive	  
+                float cosAngle = dot( intersect.normal, r.dir);
+				float n = r.IOR / intersect.indexOfRefraction;
+				float secondTerm = 1.0 - n * n * (1.0 - cosAngle * cosAngle);				
+				if (secondTerm > 0.0)
+				{
+					r.dir =( (n * r.dir) - (n * cosAngle + sqrt( secondTerm )) * intersect.normal);
+				}else
+					r.dir =vec3(0);
+				r.origin = intersect.ptOfIntersection;
+				r.isInside = !r.isInside;
+				if(r.isInside){
+				   r.IOR = intersect.indexOfRefraction;
+				}else{
+				   r.IOR = 1.0;
+				}				
+		  }		  
+	}
+	else {
+		  col = vec3(0.0, 0.0, 0.0);
+	}	
+	return col;     
+  }
+
+  void main(void)
+  {
+    initializeGeometry();
+    vec3 cameraDir = normalize(vPosition - cameraPos);  
+	RAY r;
+	r.origin = cameraPos;
+	r.dir = cameraDir;
+	r.IOR = 1.0;
+	r.isInside = true;
+    vec3 finalCol = vec3(0.0,0.0,0.0);
+
+	for(int i =0;i< 3;i++){
+	
+		finalCol+=pathTrace(r, i);
+		
+	}
+	 gl_FragColor = vec4(finalCol/3.0, 1.0);
+  }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+  attribute vec2 aVertexPosition;
+  attribute vec3 pixel;
+
+  varying vec3 vPosition;
+
+  void main(void)
+  {
+    gl_Position = vec4(aVertexPosition, 1.0, 1.0);
+    vPosition = pixel;
+ }
+</script>
+
+
+<script type="application/x-javascript">
+  
+  var timer = 0;
+  var testTimer = 5000;
+  var gl;
+  function initGL(canvas) {
+    try {
+      gl = canvas.getContext("experimental-webgl");
+	  gl.viewportWidth = canvas.width;
+      gl.viewportHeight = canvas.height;
+   //   gl.viewport(0, 0, canvas.width, canvas.height);
+    } catch(e) {
+    }
+    if (!gl) {
+      alert("Could not initialise WebGL, sorry :-(");
+    }
+  }
+
+  function getShader(gl, id)
+  {
+      var shaderScript = document.getElementById(id);
+      if (!shaderScript)
+          return null;
+
+      var shader;
+      if (shaderScript.type == "x-shader/x-fragment")
+      {
+          shader = gl.createShader(gl.FRAGMENT_SHADER);
+      }
+      else if (shaderScript.type == "x-shader/x-vertex")
+      {
+          shader = gl.createShader(gl.VERTEX_SHADER);
+      }
+      else
+      {
+          return null;
+      }
+
+      gl.shaderSource(shader, shaderScript.textContent);
+      gl.compileShader(shader);
+
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+      {
+          alert(gl.getShaderInfoLog(shader));
+          return null;
+      }
+
+      return shader;
+  }
+
+  var shaderProgram;
+  var aVertexPosition;
+  function initShaders()
+  {
+    var fragmentShader = getShader(gl, "shader-fs");
+    var vertexShader = getShader(gl, "shader-vs");
+
+    shaderProgram = gl.createProgram();
+    gl.attachShader(shaderProgram, vertexShader);
+    gl.attachShader(shaderProgram, fragmentShader);
+    gl.linkProgram(shaderProgram);
+
+    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS))
+    {
+      alert("Could not initialise shaders");
+    }
+
+    gl.useProgram(shaderProgram);
+
+    aVertexPosition = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+    gl.enableVertexAttribArray(aVertexPosition);
+
+    pixel = gl.getAttribLocation(shaderProgram, "pixel");
+    gl.enableVertexAttribArray(pixel);
+
+    cameraPos = gl.getUniformLocation(shaderProgram, "cameraPos");
+	time = gl.getUniformLocation(shaderProgram, "time");
+  
+  
+  }
+
+
+  function initBuffers()
+  {
+    vertexPositionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+    var vertices = [
+         1.0,  1.0,
+        -1.0,  1.0,
+         1.0, -1.0,
+        -1.0, -1.0,
+    ];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+    gl.vertexAttribPointer(aVertexPosition, 2, gl.FLOAT, false, 0, 0); 
+  
+  }
+
+  function drawScene()
+  {
+    gl.viewport(0, 0, gl.viewportWidth ,  gl.viewportHeight);
+       
+    cameraPosition = { x: 15,  y:  0, z: 6 };
+    lookAtPoint = { x:0, y:1, z:0 };
+    U = { x: 0, y: 1, z: 0 };
+    C = normalize(subtract(lookAtPoint, cameraPosition));
+
+	//finding all the pixels on the screen
+    A = normalize(cross(C, U));
+    B = normalize(cross(A, C));
+    midPoint = add(cameraPosition, C);
+	 
+	H = (multiply(A ,(length(C)*Math.tan(60)/length(A))));
+	V = (multiply(B ,(length(C)*Math.tan(60)/length(B))));
+	
+	//finding the corners of the screen
+    topLeft  = add(add(midPoint, V), (H));
+    botLeft  = add(subtract(midPoint, V), (H));
+    topRight = subtract(add(midPoint, V), (H));
+    botRight = subtract(subtract(midPoint, V),(H));
+	
+	gl.uniform3f(cameraPos, cameraPosition.x, cameraPosition.y, cameraPosition.z);
+	gl.uniform1f(time, testTimer);
+
+    var plotPositionBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, plotPositionBuffer);    
+   
+    corners = [];
+	corners.push(topRight.x, topRight.y, topRight.z);
+	corners.push(topLeft.x, topLeft.y, topLeft.z);
+	corners.push(botRight.x, botRight.y, botRight.z);
+	corners.push(botLeft.x, botLeft.y, botLeft.z);
+  
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(corners), gl.STATIC_DRAW);
+	//setting the pixel 
+	gl.vertexAttribPointer(pixel, 3, gl.FLOAT, false, 0, 0);  
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	// testTimer +=0.1;
+   
+  }
+
+
+
+  var canvas;
+  function webGLStart()
+  {
+    canvas = document.getElementById("rayTraceCanvas");
+    initGL(canvas);
+    initShaders()
+
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+
+    gl.clearDepth(1.0);
+
+    initBuffers();
+	
+	drawScene();
+  }
+  
+  function tick()
+  {
+ 
+    if (timer) {
+      clearInterval(timer);
+      timer = 0;
+    }
+    else {
+      timer = setInterval(drawScene, 1.0);
+    }
+  }
+ 
+  function Display(){
+	 alert('Hello from JavaScript!'+testTimer);
+  }
+
+</script>
+</head>
+
+
+<body onload="webGLStart(); tick(); " style="height: 100%; margin: 0"> 
+    
+    <canvas id="rayTraceCanvas" style="border: none;" width="600" height="600"></canvas>
+	
+	<div id="info"></div>
+	
+	<input type=button value="Try it now" 
+onClick="Display();">
+ 
+</body>
+
+</html>
