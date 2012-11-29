@@ -40,8 +40,8 @@
 	
 	};
 	
-	GEOM geomList[4];
-	const int numberOfObjects = 4;
+		GEOM geomList[5];
+	const int numberOfObjects = 5;
     const vec3 lightDir = vec3(0.577350269, 0.577350269, -0.577350269);
     float sphereRad = 1.0;
 
@@ -76,15 +76,16 @@
 		  geomList[3].indexOfRefraction = 2.0;
 		  
 		  
-		/*  geomList[4].p = vec3(1.5,-0.5, 2.0);
+		  geomList[4].p = vec3(2.5,1.0, 2.0);
 		  geomList[4].col = vec3(0,1,0);
 		  geomList[4].type = 2 ;//cube
-		  geomList[4].reflective = 0;//not reflective
+		  geomList[4].reflective = 1;//not reflective
 		  geomList[4].refractive = 0;//not refractive*/
+		  geomList[4].indexOfRefraction = 2.0;
 	 
 	 
 	}
-  
+    //from glsl sandbox ray tracing
 	float intersectPlane(vec3 center, vec3 rStart, vec3 rDir, out float t,  out vec3 normal, out vec3 pos, out vec3 color)
 	{
 		vec3 n = vec3(0,1,0);
@@ -112,6 +113,7 @@
 		return -1.;
 	}
   
+    
 	float intersectSphere(vec3 center, vec3 rStart, vec3 rDir, out float t,  out vec3 normal, out vec3 pos) {
 		vec3 rOrigin = center - rStart;
 		float b = dot(rDir, rOrigin);
@@ -129,182 +131,133 @@
 		return len;
 	}
   
-  float intersectCube(vec3 center, vec3 rStart, vec3 rDir, out float t, out vec3 normal, out vec3 pos){
-    vec3 currentNormal = vec3(0,0,0);
-	vec3 ro = rStart - center ;
-	vec3 rd = rDir;
-      	
-	vec3 bl, bh;
-	bl = vec3(-0.5, -0.5, -0.5);
-	bh = vec3(0.5,0.5, 0.5);
-
-	int coordN=0; // = 0 si X, = 1 si Y, = 2 si Z
-	int coordF=0; // = 0 si X, = 1 si Y, = 2 si Z
-
-	float tnear, tfar, t1, t2, temp;
-	tnear = -1000000.0;
-	tfar = 1000000.0;
-	float epsilon = 0.001;
-	if(abs(rd.x) <= epsilon && (ro.x < bl.x || ro.x > bh.x))
-		return -1.;
-
-	else
-	{
-		t1 = (bl.x - ro.x)/rd.x;
-		t2 = (bh.x - ro.x)/rd.x;
-
-		if(t1 > t2)
+  float intersectCube(vec3 center, vec3 rStart, vec3 rDir, out float t, out vec3 norm, out vec3 pos){
+		vec3 vertex1 = center - 0.5;
+		vec3 vertex2 = center + 0.5;
+		vec3 ro = rStart;
+		vec3 rd = rDir;
+		bool inside = false;
+		//Check if point is inside the cube
+	  
+		if(ro.x > vertex1.x && ro.x < vertex2.x && ro.y > vertex1.y && ro.y < vertex2.y && ro.z > vertex1.z && ro.z < vertex2.z)
 		{
-			temp = t1;
-			t1 = t2;
-			t2 = temp;
+			ro = ro - rd * 100000.0;
+			inside = true;
 		}
 
-		if(t1 > tnear)
+		float t1, t2;
+		float temp;
+		float tFar = 1000000.0;
+		float tNear = -10000000.0;
+
+		if(rd.x == 0.0)
 		{
-			coordN = 0;
-			tnear = t1;
+			if(!(ro.x >= vertex1.x && ro.x <= vertex2.x))
+			return -1.0;
 		}
-
-		if(t2 < tfar){
-			coordF = 0;
-			tfar = t2;
-		}
-
-		if(tnear > tfar)
-			return -1.;
-
-		if(tfar < epsilon)
-			return -1.;
-	}
-
-	if(abs(rd.y) <= epsilon && (ro.y < bl.y || ro.y > bh.y))
-		return -1.;
-
-	else
-	{
-		t1 = (bl.y - ro.y)/rd.y;
-		t2 = (bh.y - ro.y)/rd.y;
-
-		if(t1 > t2)
+		else
 		{
-			temp = t1;
-			t1 = t2;
-			t2 = temp;
+			t1 = (vertex1.x - ro.x) / rd.x;
+			t2 = (vertex2.x - ro.x) / rd.x;
+
+			if(t1 > t2)
+			{
+				temp = t1;
+				t1 = t2;
+				t2 = temp;
+			}
+			if(t1 > tNear)
+				tNear = t1;
+			if(t2 < tFar)
+				tFar = t2;
+			if(tNear > tFar)
+				return -1.0;
+			if(tFar < 0.0)
+				return -1.0;
 		}
 
-		if(t1 > tnear){
-			 coordN = 1;
-			tnear = t1;
-		}
-
-		if(t2 < tfar){
-			 coordF = 1;
-			tfar = t2;
-		}
-
-		if(tnear > tfar)
-			return -1.;
-
-		if(tfar < epsilon)
-			return -1.;
-	}
-
-	if(abs(rd.z) <= epsilon && (ro.z < bl.z || ro.z > bh.z))
-		return -1.;
-
-	else
-	{
-		t1 = (bl.z - ro.z)/rd.z;
-		t2 = (bh.z - ro.z)/rd.z;
-
-		if(t1 > t2)
+		if(rd.y == 0.0)
 		{
-			temp = t1;
-			t1 = t2;
-			t2 = temp;
+			if(!(ro.y >= vertex1.y && ro.y <= vertex2.y))
+				return -1.0;
+		}
+		else
+		{
+			t1 = (vertex1.y - ro.y) / rd.y;
+			t2 = (vertex2.y - ro.y) / rd.y;
+
+			if(t1 > t2)
+			{
+				temp = t1;
+				t1 = t2;
+				t2 = temp;
+			}
+			if(t1 > tNear)
+				tNear = t1;
+			if(t2 < tFar)
+				tFar = t2;
+			if(tNear > tFar)
+				return -1.0;
+			if(tFar < 0.0)
+				return -1.0;
 		}
 
-		if(t1 > tnear){
-			coordN = 2;
-			tnear = t1;
+		if(rd.z == 0.0)
+		{
+			if(!(ro.z >= vertex1.z && ro.z <= vertex2.z))
+			return -1.0;
+		}
+		else
+		{
+			t1 = (vertex1.z - ro.z) / rd.z;
+			t2 = (vertex2.z - ro.z) / rd.z;
+
+			if(t1 > t2)
+			{
+				temp = t1;
+				t1 = t2;
+				t2 = temp;
+			}
+			if(t1 > tNear)
+				tNear = t1;
+			if(t2 < tFar)
+				tFar = t2;
+			if(tNear > tFar)
+				return -1.0;
+			if(tFar < 0.0)
+				return -1.0;
 		}
 
-		if(t2 < tfar){
-			coordF = 2;
-			tfar = t2;
+		if(tNear >= -100000.0)
+			t = tNear;
+		else
+			return -1.0;
+
+		if ( (t > 0.0)  )
+		{
+			vec3 IntersectionPoint = ro + rd * t;
+			pos = IntersectionPoint;
+
+			vec3 normal = vec3(0.0,0.0,0.0);
+		
+			if(IntersectionPoint.x >= vertex2.x - 0.005 && IntersectionPoint.x <= vertex2.x + 0.005)
+				normal = vec3(1.0, 0.0, 0.0);
+			else if(IntersectionPoint.x >= vertex1.x - 0.005 && IntersectionPoint.x <= vertex1.x + 0.005)
+				normal = vec3(-1.0, 0.0, 0.0);
+			else if(IntersectionPoint.y >= vertex2.y - 0.005 && IntersectionPoint.y <= vertex2.y + 0.005)
+				normal = vec3(0.0, 1.0, 0.0);
+			else if(IntersectionPoint.y >= vertex1.y - 0.005 && IntersectionPoint.y <= vertex1.y + 0.005)
+				normal = vec3(0.0, -1.0, 0.0);
+			else if(IntersectionPoint.z >= vertex2.z - 0.005 && IntersectionPoint.z <= vertex2.z + 0.005)
+				normal = vec3(0.0, 0.0, 1.0);
+			else if(IntersectionPoint.z >= vertex1.z - 0.005 && IntersectionPoint.z <= vertex1.z + 0.005)
+				normal = vec3(0.0, 0.0, -1.0);
+
+			norm = normal;
+			return length(rStart - pos);
 		}
-
-		if(tnear > tfar)
-			return -1.;
-
-		if(tfar < epsilon)
-			return -1.;
+		return -1.0;
 	}
-	
-	if(abs(tnear) < epsilon)
-		return -1.;
-	float epsilon1= 0.0;
-	if(tnear < tfar)
-	{
-		vec3 point = vec3(ro.x + tnear*rd.x, ro.y + tnear*rd.y, ro.z + tnear*rd.z);
-		vec3 norm = vec3(0.0,0.0,0.0);
-		if(abs( point.x - 0.5 ) < epsilon1)
-			norm = vec3(1.0, 0.0, 0.0);
-		
-		if(abs( point.x + 0.5 ) < epsilon1)
-			norm = vec3(-1.0, 0.0, 0.0);
-		
-		if( abs( point.y - 0.5 ) < epsilon1 )
-			norm = vec3(0.0, 1.0, 0.0);
-		
-		if( abs( point.y + 0.5 ) < epsilon1 )
-			norm = vec3(0.0, -1.0, 0.0);
-		
-		if(abs( point.z - 0.5 ) < epsilon1)
-			norm = vec3(0.0, 0.0, 1.0);
-		
-		if(abs( point.z + 0.5 ) < epsilon1)
-			norm = vec3(0.0, 0.0, -1.0);
-
-		normal =  norm;
-        pos = point;
-		t = tnear;
-		return length(rStart - pos);;
-	}
-	
-	if(abs(tfar) < epsilon)
-		return -1.;
-
-	if(tfar > epsilon)
-	{
-		vec3 point = vec3(ro.x + tfar*rd.x, ro.y + tfar*rd.y, ro.z + tfar*rd.z);
-		vec3 norm = vec3(0.0,0.0,0.0);
-		if(abs( point.x - 0.5 ) < epsilon1)
-			norm = vec3(1.0, 0.0, 0.0);
-		
-		if(abs( point.x + 0.5 ) < epsilon1)
-			norm = vec3(-1.0, 0.0, 0.0);
-		
-		if( abs( point.y - 0.5 ) < epsilon1 )
-			norm = vec3(0.0, 1.0, 0.0);
-		
-		if( abs( point.y + 0.5 ) < epsilon1 )
-			norm = vec3(0.0, -1.0, 0.0);
-		
-		if(abs( point.z - 0.5 ) < epsilon1)
-			norm = vec3(0.0, 0.0, 1.0);
-		
-		if(abs( point.z + 0.5 ) < epsilon1)
-			norm = vec3(0.0, 0.0, -1.0);
-
-		normal =  norm;
-		pos = point;
-		t = tfar;
-		return length(rStart - pos);;
-	}
-   return -1.;
-  }
 
   bool intersectWorld(RAY r, inout INTERSECT intersect) {
     float t;
@@ -328,10 +281,8 @@
 			if(hitPointDistance < closestIntersectionDistance)
 			{
 				closestIntersectionDistance = hitPointDistance;
-				if(i == 3){
+				if(geomList[i].type == 1){
 				  tempColor = planeColor;
-				}else if(i== 4){
-				   tempColor = vec3(0,0,1);
 				}else
 					tempColor = geomList[i].col;
 					intersect.normal = tempNormal;
@@ -355,7 +306,7 @@
   float random(vec3 scale, float seed) {
 	return fract(sin(dot(vPosition + seed, scale)) * 43758.5453 + seed);
   }
-  
+  // from http://www.rorydriscoll.com/2009/01/07/better-sampling/
   vec3 cosineWeightedDirection(float seed, vec3 normal) {
 	   float u = random(vec3(12.9898, 78.233, 151.7182), seed);
 	   float v = random(vec3(63.7264, 10.873, 623.6736), seed);
