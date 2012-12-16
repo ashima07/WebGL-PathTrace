@@ -1,0 +1,986 @@
+<html>
+
+<head>
+<title>PATH TRACER</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+<script type="text/javascript" src="utilityFunctions.js"></script>
+
+
+<script id="texture-render-fs" type="x-shader/x-fragment">
+    precision highp float;
+	varying vec2 aTextureCoord;
+	uniform sampler2D uTexture;
+	void main() {
+		gl_FragColor = texture2D(uTexture, aTextureCoord);
+	}
+</script>
+
+<script id="texture-render-vs" type="x-shader/x-vertex">
+	attribute vec2 aVertexPosition;
+	varying vec2 aTextureCoord;
+	void main() {
+		aTextureCoord = aVertexPosition.xy * 0.5 + 0.5;
+		gl_Position = vec4(aVertexPosition,1.0, 1.0);
+	}
+</script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+	precision mediump float;
+    varying vec3 vPosition;
+	uniform vec3 cameraPos;
+	uniform float time;
+	//uniform sampler2D texture;
+	uniform float weight;
+	uniform sampler2D uTexture;
+//	float iterations= 5000.0;
+	  
+	struct RAY{
+		vec3 origin;
+		vec3 dir;
+	//	bool isInside;
+		float IOR;
+		//bool continueFlag;//if the ray is alive
+	};
+	struct GEOM{
+		vec3 p;//position
+		vec3 scale;
+		vec3 rotation;
+		vec3 col;
+		int type;
+		int reflective;
+		int refractive;	
+		float indexOfRefraction;		
+		int textureType;
+		int emittance;
+		float radius;
+		int subsurfaceScatter;
+		float reflectivity;
+		
+	};
+	
+	struct INTERSECT{
+	  vec3 ptOfIntersection;
+	  vec3 normal;
+	  vec3 color;
+	  int reflective;//identify whether the currently intersected object is reflective
+	  int refractive;
+	  float indexOfRefraction;	
+	  int emittance;
+	  int subsurfaceScatter;
+	  float reflectivity;
+
+	};
+	
+	struct Fresnel {
+	  float reflectionCoefficient;
+	  float transmissionCoefficient;
+	};
+	
+	
+	GEOM geomList[8];
+	const int numberOfObjects = 8;
+    float sphereRad = 1.0;
+    /*****************************************************Geometry Initialization function************************************************************************************************/
+	void initializeGeometry(){
+		geomList[0].p = vec3(-2.0,1.0,-1.0);
+		geomList[0].col = vec3(1,0,0);
+		geomList[0].type = 0 ;//sphere
+		geomList[0].reflective = 1;//not reflective
+		geomList[0].refractive = 0;//not refractive
+		geomList[0].indexOfRefraction = 1.09;
+		geomList[0].emittance = 0;
+		geomList[0].radius = 1.0;
+		geomList[0].subsurfaceScatter = 1;
+		geomList[0].reflectivity = 0.2;
+		
+		geomList[1].p = vec3(6.0,-0.2,1.0);
+		geomList[1].col = vec3(0,1,1);
+		geomList[1].type = 0 ;//sphere
+		geomList[1].reflective = 0;//not reflective
+		geomList[1].refractive = 1;//not refractive
+		geomList[1].indexOfRefraction = 1.8;
+		geomList[1].emittance = 0;
+		geomList[1].radius = 1.0;
+		geomList[1].subsurfaceScatter = 0;
+		geomList[1].reflectivity = 0.4;
+	
+		geomList[2].p = vec3(1.0,-0.2,4.0);
+		geomList[2].col = vec3(0,1,1);
+		geomList[2].type = 0 ;//sphere
+		geomList[2].reflective = 0;//not reflective
+		geomList[2].refractive = 0;//not refractive
+		geomList[2].indexOfRefraction = 2.5;
+		geomList[2].emittance = 0;
+		geomList[2].radius = 1.0;
+		geomList[2].subsurfaceScatter = 2;
+		geomList[2].reflectivity = 0.2;
+	
+	    //plane
+		geomList[3].p = vec3(0.0,-1.5, 0.0);
+		geomList[3].col = vec3(1,1,0);
+		geomList[3].type = 1 ;//plane
+		geomList[3].reflective = 0;//not reflective
+		geomList[3].refractive = 0;//not refractive
+		geomList[3].indexOfRefraction = 2.0;
+		geomList[3].emittance = 2;
+		geomList[3].subsurfaceScatter = 0;
+		geomList[3].reflectivity = 0.2;
+	
+		geomList[4].p = vec3(-3.0,1.0,1.0);
+		geomList[4].col = vec3(0,1,0);
+		geomList[4].type = 2 ;//cube
+		geomList[4].reflective = 0;//not reflective
+		geomList[4].refractive = 0;//not refractive*/
+		geomList[4].indexOfRefraction = 2.0; 
+		geomList[4].emittance = 0;
+		geomList[4].scale = vec3(0.7,0.7,0.7);
+		geomList[4].subsurfaceScatter = 1;
+		geomList[4].reflectivity = 0.0;
+			
+		//light
+		geomList[5].p = vec3(4.0,6.0,1.0);
+		geomList[5].col = vec3(1,1,1);
+		geomList[5].type = 2 ;//cube
+		geomList[5].reflective = 0;//not reflective
+		geomList[5].refractive = 0;//not refractive*/
+		geomList[5].indexOfRefraction = 2.0; 
+		geomList[5].emittance = 1;
+		geomList[5].scale = vec3(1.0,0.1,1.0);
+		geomList[5].subsurfaceScatter = 0;
+		geomList[5].reflectivity = 0.0;
+			
+		geomList[6].p = vec3(3.0,-0.5,2.0);
+		geomList[6].col = vec3(1,1,0);
+		geomList[6].type = 0 ;//sphere
+		geomList[6].reflective = 0;//not reflective
+		geomList[6].refractive = 0;//refractive
+		geomList[6].indexOfRefraction = 1.2;
+		geomList[6].emittance = 0;
+		geomList[6].radius = 1.0;
+		geomList[6].subsurfaceScatter = 0;
+		geomList[6].reflectivity = 0.3;
+			
+		geomList[7].p = vec3(3.0,2.5,-4.0);
+		geomList[7].col = vec3(0.1,0.1,0.7);
+		geomList[7].type = 2 ;//cube
+		geomList[7].reflective = 0;//not reflective
+		geomList[7].refractive = 0;//not refractive*/
+		geomList[7].indexOfRefraction = 2.0; 
+		geomList[7].emittance = 2;
+		geomList[7].scale = vec3(16.0,8.0,0.5);
+		geomList[7].subsurfaceScatter = 0;
+		geomList[7].reflectivity = 0.1;
+		 
+	}
+    //from glsl sandbox ray tracing
+	/*****************************************************plane intersection function*************************************************************************************************/
+	float intersectPlane(GEOM g, vec3 rStart, vec3 rDir, out float t,  out vec3 normal, out vec3 pos, out vec3 color)
+	{
+	   	vec3 n = vec3(0,1,0);
+		vec3 col = vec3(1,1,1);
+		float d = -dot(g.p, n);
+		float v = dot(rDir, n);
+		if (abs(v) < 1.0e-6)
+			return -1.; 
+			
+		t = -(dot(rStart, n) + d) / v;
+		if ( (t > 0.1)){
+			pos = rStart + t * rDir;		
+			float offset = 0.2;
+			vec3 dp = pos + offset;
+			if ((mod(dp.x, 1.0) > 0.5 && mod(dp.z, 1.0) > 0.5)
+			||  (mod(dp.x, 1.0) < 0.5 && mod(dp.z, 1.0) < 0.5))
+				color = col;
+			else
+				color  = col * 0.5;	
+			//color = vec3(1.0);				
+			normal = n;
+			return  length(rStart - pos);
+		}
+		return -1.;
+	}
+  
+    /*****************************************************sphere intersection function*************************************************************************************************/
+	float intersectSphere(GEOM g, vec3 rStart, vec3 rDir, out float t,  out vec3 normal, out vec3 pos) {
+		vec3 rOrigin = g.p - rStart;
+		float b = dot(rDir, rOrigin);
+		float d = b*b - dot(rOrigin, rOrigin) + g.radius * g.radius;
+		if (d < 0.0) {
+			return -1.0;
+		}
+		
+		t = b - sqrt(d);
+		if (t < 0.0) {
+			return -1.0;
+		}
+		pos = rStart + t * rDir;
+		normal = pos - g.p;
+		float len = length(rStart - pos);
+		return len;
+	}
+    /*****************************************************cube intersection function***************************************************************************************************/
+	float intersectCube(GEOM g, vec3 rStart, vec3 rDir, out float t, out vec3 norm, out vec3 pos){
+		vec3 vertex1 = g.p - g.scale;
+		vec3 vertex2 = g.p +  g.scale;
+		vec3 ro = rStart;
+		vec3 rd = rDir;
+		
+		float t1, t2;
+		float temp;
+		float tFar = 1000000.0;
+		float tNear = -10000000.0;
+         /*************************X-axis checking *****************************************/
+		if(rd.x == 0.0){
+			if(!(ro.x >= vertex1.x && ro.x <= vertex2.x))
+				return -1.0;
+		}else{
+			t1 = (vertex1.x - ro.x) / rd.x;
+			t2 = (vertex2.x - ro.x) / rd.x;
+
+			if(t1 > t2){
+				temp = t1;
+				t1 = t2;
+				t2 = temp;
+			}
+			if(t1 > tNear)
+				tNear = t1;
+			if(t2 < tFar)
+				tFar = t2;
+			if(tNear > tFar)
+				return -1.0;
+			if(tFar < 0.0)
+				return -1.0;
+		}//X-axis end
+		 /*************************Y-axis checking *****************************************/
+		if(rd.y == 0.0){
+			if(!(ro.y >= vertex1.y && ro.y <= vertex2.y))
+				return -1.0;
+		}else{
+			t1 = (vertex1.y - ro.y) / rd.y;
+			t2 = (vertex2.y - ro.y) / rd.y;
+			if(t1 > t2)	{
+				temp = t1;
+				t1 = t2;
+				t2 = temp;
+			}
+			if(t1 > tNear)
+				tNear = t1;
+			if(t2 < tFar)
+				tFar = t2;
+			if(tNear > tFar)
+				return -1.0;
+			if(tFar < 0.0)
+				return -1.0;
+		}//Y-axis end
+        /*************************Z-axis checking *****************************************/
+		if(rd.z == 0.0){
+			if(!(ro.z >= vertex1.z && ro.z <= vertex2.z))
+				return -1.0;
+		}else{
+			t1 = (vertex1.z - ro.z) / rd.z;
+			t2 = (vertex2.z - ro.z) / rd.z;
+			if(t1 > t2){
+				temp = t1;
+				t1 = t2;
+				t2 = temp;
+			}
+			if(t1 > tNear)
+				tNear = t1;
+			if(t2 < tFar)
+				tFar = t2;
+			if(tNear > tFar)
+				return -1.0;
+			if(tFar < 0.0)
+				return -1.0;
+		}//z-axis end
+
+		if(tNear >= -100000.0)
+			t = tNear;
+		else
+			return -1.0;
+		float epsilon = 0.005;
+
+		if ( (t > 0.0)  ){
+			vec3 IntersectionPoint = ro + rd * t;
+			pos = IntersectionPoint;
+			vec3 normal = vec3(0.0,0.0,0.0);
+			if(IntersectionPoint.x >= vertex2.x - epsilon && IntersectionPoint.x <= vertex2.x + epsilon)
+				normal = vec3(1.0, 0.0, 0.0);
+			else if(IntersectionPoint.x >= vertex1.x - epsilon && IntersectionPoint.x <= vertex1.x + epsilon)
+				normal = vec3(-1.0, 0.0, 0.0);
+			else if(IntersectionPoint.y >= vertex2.y - epsilon && IntersectionPoint.y <= vertex2.y + epsilon)
+				normal = vec3(0.0, 1.0, 0.0);
+			else if(IntersectionPoint.y >= vertex1.y - epsilon && IntersectionPoint.y <= vertex1.y + epsilon)
+				normal = vec3(0.0, -1.0, 0.0);
+			else if(IntersectionPoint.z >= vertex2.z - epsilon && IntersectionPoint.z <= vertex2.z + epsilon)
+				normal = vec3(0.0, 0.0, 1.0);
+			else if(IntersectionPoint.z >= vertex1.z - epsilon && IntersectionPoint.z <= vertex1.z + epsilon)
+				normal = vec3(0.0, 0.0, -1.0);
+			norm = normal;
+			return length(rStart - pos);
+		}
+		return -1.0;
+	}
+	
+	/*****************************************************world intersection function************************************************************************************************/
+	bool intersectWorld(RAY r, inout INTERSECT intersect, inout float dist) {
+		float t;
+		float hitPointDistance = -1.0;
+		float closestIntersectionDistance = 100000.0;
+		vec3 tempNormal = vec3(0);
+		vec3 tempIntersectionPoint = vec3(0);
+		vec3 tempColor = vec3(0,0,0);
+		vec3 planeColor = vec3(0,0,0);
+		for(int i =0;i<numberOfObjects;++i){	
+			if(geomList[i].type == 0){
+				hitPointDistance = intersectSphere(geomList[i], r.origin, r.dir, t, tempNormal, tempIntersectionPoint);
+			}else if(geomList[i].type == 1){
+				hitPointDistance = intersectPlane(geomList[i], r.origin, r.dir, t, tempNormal, tempIntersectionPoint, planeColor);
+			}else if(geomList[i].type == 2){
+				hitPointDistance = intersectCube(geomList[i], r.origin, r.dir, t, tempNormal, tempIntersectionPoint);
+			}
+
+			if(hitPointDistance > 0.0){
+				if(hitPointDistance < closestIntersectionDistance){
+					closestIntersectionDistance = hitPointDistance;
+					if(geomList[i].type == 1)
+						tempColor = planeColor;
+					else
+						tempColor = geomList[i].col;
+					intersect.normal = tempNormal;
+					intersect.ptOfIntersection = tempIntersectionPoint;
+					intersect.color = tempColor;
+					intersect.reflective = geomList[i].reflective;
+					intersect.refractive = geomList[i].refractive;
+					intersect.indexOfRefraction = geomList[i].indexOfRefraction;
+					intersect.emittance = geomList[i].emittance;
+					intersect.subsurfaceScatter =  geomList[i].subsurfaceScatter ;
+					intersect.reflectivity =  geomList[i].reflectivity;
+					//dist = t;
+				}
+			}
+		}
+		if (closestIntersectionDistance > -1.0){
+		 //   dist = closestIntersectionDistance;
+			return true;
+		}else 
+			return false;		
+	}
+	
+	//used the technique described at http://machinesdontcare.wordpress.com/2008/10/29/subsurface-scatter-shader/#
+	float halfLambert(in vec3 vect1, in vec3 vect2)
+	{
+		float product = dot(vect1,vect2);
+		return product * 0.5 + 0.5;
+	}
+
+	float blinnPhongSpecular(in vec3 normalVec, in vec3 lightVec, in float specPower)
+	{
+		vec3 halfAngle = normalize(normalVec + lightVec);
+		return pow(clamp(0.0,1.0,dot(normalVec,halfAngle)),specPower);
+	}
+	
+	
+	vec3 subScatterFS(in INTERSECT isect)
+	{
+		
+		float RimScalar = 1.0;
+		float MaterialThickness = 0.3;
+		vec3 ExtinctionCoefficient = vec3(1.0,1.0,1.0);
+		vec3 SpecColor = vec3(1.0,1.0,1);
+		vec3 lightPoint = vec3(4.0,6.0,1.0);
+
+		vec3 p = isect.ptOfIntersection;
+
+		float attenuation = 10.0 * (1.0 / distance(lightPoint,isect.ptOfIntersection));
+		vec3 eVec = normalize(isect.ptOfIntersection);
+		vec3 lVec = normalize(lightPoint - isect.ptOfIntersection);
+		vec3 wNorm = normalize(isect.normal);
+
+		vec3 dotLN = vec3(halfLambert(lVec,wNorm) * attenuation);
+		dotLN *= isect.color;
+		
+		vec3 indirectLightComponent = vec3(MaterialThickness * max(0.0,dot(-wNorm,lVec)));
+		indirectLightComponent += MaterialThickness * halfLambert(-eVec,lVec);
+		indirectLightComponent *= attenuation;
+		indirectLightComponent.r *= ExtinctionCoefficient.r;
+		indirectLightComponent.g *= ExtinctionCoefficient.g;
+		indirectLightComponent.b *= ExtinctionCoefficient.b;
+
+		vec3 rim = vec3(1.0 - max(0.0,dot(wNorm,eVec)));
+		rim *= rim;
+		rim *= max(0.0,dot(wNorm,lVec)) * SpecColor.rgb;
+		
+		vec4 finalCol = vec4(dotLN,1.0) + vec4(indirectLightComponent,1.0);
+		finalCol.rgb += (rim * RimScalar * attenuation * finalCol.a);
+		finalCol.rgb += vec3(blinnPhongSpecular(wNorm,lVec,5.0) * attenuation * SpecColor * finalCol.a * 0.01);
+		finalCol.rgb *= vec3(1,1,1);
+
+		return finalCol.rgb;   
+	}
+	  
+    /*****************************************************RANDOM function*********************************************************************************************************/
+	float random(vec3 noise, float seed) {
+		return fract(sin(dot(vPosition + seed, noise)) * 43758.5453 + seed);
+	}
+	
+	/*****************************************************cosine weighted function************************************************************************************************/
+	
+	vec3 cosineWeightedDirection(float seed, vec3 normal) 
+	{
+		float u = random(vec3(12.9898, 78.233, 151.7182), seed);
+		float v = random(vec3(63.7264, 10.873, 623.6736), seed);
+			
+		float up = sqrt(u); 
+		float over = sqrt(1.0 - up * up); 
+		float around = v * 3.14 * 2.0;
+		
+		vec3 directionNotNormal;
+		if (abs(normal.x) < 0.577350269189) { 
+		  directionNotNormal = vec3(1, 0, 0);
+		} else if (abs(normal.y) < 0.577350269189) { 
+		  directionNotNormal = vec3(0, 1, 0);
+		} else {
+		  directionNotNormal = vec3(0, 0, 1);
+		}
+				
+		vec3 perpendicularDirection1 = normalize(cross(normal, directionNotNormal));
+		vec3 perpendicularDirection2 = normalize(cross(normal, perpendicularDirection1)); 
+		
+		return ( up * normal ) + ( cos(around) * over * perpendicularDirection1 ) + ( sin(around) * over * perpendicularDirection2 );
+	}
+	
+	
+	vec3 randomDirectionInSphere(float seed) {
+		float u = random(vec3(12.9898, 78.233, 151.7182), seed);
+		float v = random(vec3(63.7264, 10.873, 623.6736), seed);
+
+		float up = u * 2.0 - 1.0; // cos(theta)
+		float over = sqrt(1.0 - up * up); // sin(theta)
+		float around = v * 3.14;
+
+		return vec3( up, cos(around) * over, sin(around) * over );
+	}
+	
+	vec3 calculateTransmissionDirection(vec3 normal, vec3 incident, float incidentIOR, float transmittedIOR, inout bool internalReflection) {
+	
+		float dotValue = dot(normal, -incident);
+
+		float eta = incidentIOR / transmittedIOR;//eta
+
+		float k = 1.0 - pow(eta, 2.0) * (1.0 - pow(dotValue, 2.0));
+		
+		if ( k <0.0) {
+				internalReflection = true;
+				return vec3(0.0);//calculateReflectionDirection(normal,incident);
+		}
+		else{
+				return normalize( (incident)*eta + normal*(eta*dotValue - sqrt(k)) );
+		}
+		
+	}
+	
+	Fresnel calculateFresnel(vec3 normal, vec3 incident, float incidentIOR, float transmittedIOR) {
+		Fresnel fresnel;
+		incident = normalize(incident);
+		normal = normalize(normal);
+
+		if (incidentIOR <= 0.0 && transmittedIOR <= 0.0 ) { 
+			fresnel.reflectionCoefficient = 1.0;
+			fresnel.transmissionCoefficient = 0.0;
+			return fresnel;
+		}else{
+			float cosThetaI = abs(dot(normal, incident));
+			float sinIncidence = sqrt(1.0-pow(cosThetaI,2.0));
+			float cosThetaT = sqrt(1.0-pow(((incidentIOR/transmittedIOR)*sinIncidence),2.0));
+			float RsP = pow( (incidentIOR * cosThetaI - transmittedIOR * cosThetaT) / (incidentIOR * cosThetaI + transmittedIOR * cosThetaT) , 2.0);
+			float RpP = pow( (incidentIOR * cosThetaT - transmittedIOR * cosThetaI) / (incidentIOR * cosThetaT + transmittedIOR * cosThetaI) , 2.0);
+			fresnel.reflectionCoefficient = (RsP + RpP) / 2.0; 
+			fresnel.transmissionCoefficient = 1.0 - fresnel.reflectionCoefficient;
+			return fresnel;
+		}
+
+	}
+
+	
+    /*****************************************************PATH TRACE********************************************************************************************************************/
+	int traceIter = 5;
+	vec3 pathTrace(inout RAY r, int rayDepth, inout vec3 col){
+		vec3 colorMask = vec3(1.0);
+		float incidentIOR = 1.0;
+		float transmittedIOR = 1.0;
+		bool internalReflection = false;
+		bool reflective = false;
+		bool refractive = false;
+	
+			for (int i = 0; i <5; ++i) {
+				INTERSECT intersect;
+				float dist = -1.0;
+				if (intersectWorld(r, intersect,dist)) {	
+					if(intersect.emittance == 1)
+					{//is light
+						col = colorMask * 5.0;//don't know why 5.0 doesn't work
+						return col;
+					}else{//Non light object					      									
+							incidentIOR = r.IOR;
+							transmittedIOR = intersect.indexOfRefraction;
+						    internalReflection = false;
+							Fresnel fresnel= calculateFresnel(intersect.normal, r.dir, incidentIOR, transmittedIOR);
+
+							reflective = false;
+							refractive = false;
+							if(intersect.refractive == 1 &&	intersect.reflective == 1){										
+									float russianRoulette = fract(( random(vec3(12.9898, 78.233, 151.7182), time) ));
+									if(russianRoulette<fresnel.transmissionCoefficient)
+										refractive=true;										
+									else							
+										reflective=true;								
+							}else if(intersect.reflective == 1 ){
+								reflective=true;
+							}else if(intersect.refractive ==1 )
+							{
+								refractive=true;
+							}
+							
+							if(intersect.subsurfaceScatter == 1){
+							    colorMask*= subScatterFS(intersect);
+							}						   
+						   
+							if(intersect.subsurfaceScatter == 2){//for glossy effect
+							    colorMask*= subScatterFS(intersect);
+								r.origin = intersect.ptOfIntersection + r.dir*0.01;
+								r.dir = normalize(r.dir - 2.0 * dot(intersect.normal, r.dir ) * intersect.normal) + randomDirectionInSphere(time + float(i)) * 0.15;
+							}else if(refractive){	//refractive	 										
+								r.dir = calculateTransmissionDirection(intersect.normal, r.dir, incidentIOR, transmittedIOR, internalReflection);
+								r.origin = intersect.ptOfIntersection;
+								if(internalReflection){
+									r.IOR = intersect.indexOfRefraction;
+								}else{
+									r.IOR = 1.0;									
+								}									
+							} else	if(reflective){//reflective
+								//col+= (colorMask*intersect.color);							
+								r.origin = intersect.ptOfIntersection;
+								r.dir = r.dir - 2.0 * dot(intersect.normal, r.dir ) * intersect.normal ;
+							}else{// if(!reflective &&	!refractive){//diffuse
+							
+							    float russianRouletteGlossy = fract(( random(vec3(12.9898, 78.233, 151.7182), time) ));
+								if (intersect.emittance == 2 && russianRouletteGlossy <= intersect.reflectivity)
+								{
+									r.origin = intersect.ptOfIntersection;
+									r.dir = r.dir - 2.0 * dot(intersect.normal, r.dir ) * intersect.normal ;
+									//col+= (colorMask*intersect.color);	
+							//		colorMask *= intersect.color;
+								//	col+= colorMask;
+									
+								}else{
+									colorMask *= intersect.color;
+									col+= colorMask;																								
+									r.origin = intersect.ptOfIntersection + r.dir*0.001;
+									r.dir = normalize(cosineWeightedDirection(time + float(i), intersect.normal));		
+								}								
+								
+							}											
+						}
+				}else{
+					col = vec3(0.0);
+				    return col;				
+				}				
+			}			
+			return col;   
+		
+	}
+    /*****************************************************MAIN*************************************************************************************************************************/
+	void main(void)
+	{
+		initializeGeometry();
+		vec3 cameraDir = normalize(vPosition - cameraPos);  
+		//===========================================ray initialization================================================
+		RAY r;
+		r.origin = cameraPos;
+		r.dir = cameraDir;
+		//------------------------------For Anti-Alias----------------------------------
+		float u = 0.001 * sin( random(vec3(12.9898, 78.233, 151.7182), time) );
+		float v = 0.001 * sin( random(vec3(63.7264, 10.873, 623.6736), time+1.0) );
+		r.dir = normalize( cameraDir + vec3(u,v,0));
+		//-------------------------------------------------------------------------------
+		r.IOR = 1.0;		
+		//========================================================================
+		
+		vec3 finalCol = texture2D(uTexture, gl_FragCoord.xy/ 512.0).rgb;
+		pathTrace(r, 1, finalCol);	//5		
+				
+		vec3 texture = texture2D(uTexture, gl_FragCoord.xy / 512.0).rgb;
+	//	gl_FragColor = vec4((texture * (iterations - 1.0) + finalCol/5.0) / iterations,1.0);
+		gl_FragColor = vec4(mix(finalCol/5.0, texture, weight), 1.0);
+	
+	}
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+	attribute vec2 aVertexPosition;
+	attribute vec3 pixel;
+
+	varying vec3 vPosition;
+
+	void main(void)
+	{
+		gl_Position = vec4(aVertexPosition, 1.0, 1.0);
+		vPosition = pixel;
+	}
+</script>
+
+
+<script type="application/x-javascript">
+
+    /******************************************************utility functions**********************************************************************/
+	function cross(v1, v2) {
+		return { x: v1.y*v2.z - v2.y*v1.z,
+				 y: v1.z*v2.x - v2.z*v1.x,
+				 z: v1.x*v2.y - v2.x*v1.y };
+	}
+
+	function normalize(v) {
+		l = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+		return { x: v.x/l, y: v.y/l, z: v.z/l };
+	}
+
+	function add(v1, v2) {
+		return { x: v1.x + v2.x, y: v1.y + v2.y, z: v1.z + v2.z };
+	}
+
+	function subtract(v1, v2) {
+		return { x: v1.x - v2.x, y: v1.y - v2.y, z: v1.z - v2.z };
+	}
+
+	function length(v){
+		return Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+	}
+	function multiply(v, l) {
+		return { x: v.x*l, y: v.y*l, z: v.z*l };
+	}
+    
+	/***********************************variable declaration ********************************************************************************/
+	var timer = 0;
+	var testTimer = 0.0;
+	var iterations = 0.0;
+	var gl;
+	var shaderProgram;
+	var renderProgram;
+	var textures = [];
+	var framebuffer;
+	var vertexPositionBuffer;
+	var cameraPosition = { x: 15,  y:  0, z: 6 };
+	var	lookAtPoint = { x:0, y:1, z:0 };
+	var	U = { x: 0, y: 1, z: 0 };
+	var canvas;
+	
+	var targetRotation = 0;
+	var targetRotationOnMouseDown = 0;
+
+	var mouseX = 0, mouseY = 0;
+	var mouseXOnMouseDown = 0;
+
+	var windowHalfX = window.innerWidth / 2;
+	var windowHalfY = window.innerHeight / 2;
+	
+	var mouseDown = false;
+	
+	
+	/*************************************webGL initialization *******************************************************************************/
+	function initGL(canvas) {
+		try {
+			gl = canvas.getContext("experimental-webgl");
+			gl.viewportWidth = canvas.width;
+			gl.viewportHeight = canvas.height;
+			//   gl.viewport(0, 0, canvas.width, canvas.height);
+		} catch(e) {
+		}
+		if (!gl) {
+			alert("Could not initialise WebGL, sorry :-(");
+		}
+		
+		document.addEventListener( 'mousedown', onDocumentMouseDown, false );
+		document.addEventListener( 'touchstart', onDocumentTouchStart, false );
+		document.addEventListener( 'touchmove', onDocumentTouchMove, false );
+	}
+	
+	
+	function onDocumentMouseDown( event ) {
+		
+		event.preventDefault();
+
+		document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+		document.addEventListener( 'mouseup', onDocumentMouseUp, false );
+		document.addEventListener( 'mouseout', onDocumentMouseOut, false );
+
+		mouseXOnMouseDown = event.clientX - windowHalfX;
+		targetRotationOnMouseDown = targetRotation;
+		mouseDown = true;
+
+	}
+
+	function onDocumentMouseMove( event ) {
+
+		mouseX = ( event.clientX - windowHalfY );
+		mouseY = ( event.clientY - windowHalfY ) ;
+		targetRotation = targetRotationOnMouseDown + ( mouseX - mouseXOnMouseDown ) * 0.02;
+		
+
+	}
+
+	function onDocumentMouseUp( event ) {
+
+		document.removeEventListener( 'mousemove', onDocumentMouseMove, false );
+		document.removeEventListener( 'mouseup', onDocumentMouseUp, false );
+		document.removeEventListener( 'mouseout', onDocumentMouseOut, false );
+		mouseDown = false;
+
+	}
+
+	function onDocumentMouseOut( event ) {
+
+		document.removeEventListener( 'mousemove', onDocumentMouseMove, false );
+		document.removeEventListener( 'mouseup', onDocumentMouseUp, false );
+		document.removeEventListener( 'mouseout', onDocumentMouseOut, false );
+
+	}
+
+	function onDocumentTouchStart( event ) {
+
+		if ( event.touches.length == 1 ) {
+
+			event.preventDefault();
+
+			mouseXOnMouseDown = event.touches[ 0 ].pageX - windowHalfX;
+			targetRotationOnMouseDown = targetRotation;
+
+		}
+
+	}
+
+	function onDocumentTouchMove( event ) {
+
+		if ( event.touches.length == 1 ) {
+
+			event.preventDefault();
+
+			mouseX = event.touches[ 0 ].pageX - windowHalfX;
+			targetRotation = targetRotationOnMouseDown + ( mouseX - mouseXOnMouseDown ) * 0.05;
+
+		}
+
+	}
+
+	function getShader(gl, id)
+	{
+		var shaderScript = document.getElementById(id);
+		if (!shaderScript)
+		return null;
+
+		var shader;
+		if (shaderScript.type == "x-shader/x-fragment"){
+			shader = gl.createShader(gl.FRAGMENT_SHADER);
+		}else if (shaderScript.type == "x-shader/x-vertex"){
+			shader = gl.createShader(gl.VERTEX_SHADER);
+		}else{
+			return null;
+		}
+
+		gl.shaderSource(shader, shaderScript.textContent);
+		gl.compileShader(shader);
+
+		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)){
+			alert(gl.getShaderInfoLog(shader));
+			return null;
+		}
+
+		return shader;
+	}
+	function createProgram(fragmentShaderID, vertexShaderID) {
+		var fragmentShader = getShader(gl, fragmentShaderID);
+		var vertexShader = getShader(gl, vertexShaderID);
+
+		var program = gl.createProgram();
+		gl.attachShader(program, vertexShader);
+		gl.attachShader(program, fragmentShader);
+		gl.linkProgram(program);
+
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+			alert("Could not initialise shaders");
+		}
+
+		program.vertexPositionAttribute = gl.getAttribLocation(program, "aVertexPosition");
+		gl.enableVertexAttribArray(program.vertexPositionAttribute);
+
+		program.PixelAttribute = gl.getAttribLocation(program, "pixel");
+		gl.enableVertexAttribArray(program.PixelAttribute);
+
+		program.cameraPos = gl.getUniformLocation(program, "cameraPos");
+		program.time = gl.getUniformLocation(program, "time");
+		program.weight = gl.getUniformLocation(program, "weight");
+		program.samplerUniform = gl.getUniformLocation(program, "uSampler");
+
+		return program;
+	}
+   
+    function initShaders() {
+		if(shaderProgram != null) {
+			gl.deleteProgram(program);
+		}
+		shaderProgram = createProgram("shader-fs", "shader-vs");
+    
+    }
+    
+	function initTextures(){
+		// create framebuffer
+		framebuffer = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		framebuffer.width = 512;
+        framebuffer.height = 512;
+		// create textures
+		var type = gl.getExtension('OES_texture_float') ? gl.FLOAT : gl.UNSIGNED_BYTE;
+		for(var i = 0; i < 2; i++) {
+			textures.push(gl.createTexture());
+			gl.bindTexture(gl.TEXTURE_2D, textures[i]);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 512, 512, 0, gl.RGB, type, null);
+		}
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		renderProgram = createProgram("texture-render-fs", "texture-render-vs");
+		
+		iterations = 0;
+		shaderProgram = null;
+    }
+	
+	function initBuffers()
+	{
+		vertexPositionBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+		var vertices = [
+						1.0,  1.0,
+						-1.0,  1.0,
+						1.0, -1.0,
+						-1.0, -1.0,
+						];
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+	}
+	
+	function renderTexture() {
+		gl.useProgram(renderProgram);
+		gl.bindTexture(gl.TEXTURE_2D, textures[0]);
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+		gl.vertexAttribPointer(renderProgram.vertexPositionAttribute, 2, gl.FLOAT, false, 0, 0);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	}
+  
+	function drawScene()
+	{
+	    testTimer+=0.5;
+		
+		gl.viewport(0, 0, gl.viewportWidth ,  gl.viewportHeight);
+		
+		//using the technique described in CIS 460 to calculate camera coordinates
+		
+		C = normalize(subtract(lookAtPoint, cameraPosition));
+
+		//finding all the pixels on the screen
+		A = normalize(cross(C, U));
+		B = normalize(cross(A, C));
+		midPoint = add(cameraPosition, C);
+
+		H = (multiply(A ,(length(C)*Math.tan(60)/length(A))));
+		V = (multiply(B ,(length(C)*Math.tan(60)/length(B))));
+
+		//finding the corners of the screen
+		topLeft  = add(add(midPoint, V), (H));
+		botLeft  = add(subtract(midPoint, V), (H));
+		topRight = subtract(add(midPoint, V), (H));
+		botRight = subtract(subtract(midPoint, V),(H));
+		gl.useProgram(shaderProgram);
+		gl.uniform3f(shaderProgram.cameraPos, cameraPosition.x, cameraPosition.y, cameraPosition.z);
+		gl.uniform1f(shaderProgram.time, testTimer);
+		gl.uniform1f(shaderProgram.weight  , iterations / (iterations + 1));
+		gl.bindTexture(gl.TEXTURE_2D, textures[0]);
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textures[1], 0);
+	
+		var plotPositionBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, plotPositionBuffer);    
+
+		corners = [];
+		corners.push(topRight.x, topRight.y, topRight.z);
+		corners.push(topLeft.x, topLeft.y, topLeft.z);
+		corners.push(botRight.x, botRight.y, botRight.z);
+		corners.push(botLeft.x, botLeft.y, botLeft.z);
+
+		gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(corners), gl.STATIC_DRAW);
+		//setting the pixel 
+		gl.vertexAttribPointer(shaderProgram.PixelAttribute, 3, gl.FLOAT, false, 0, 0);  
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		
+		textures.reverse();
+		renderTexture();
+		iterations++;
+	
+	}
+
+
+
+	
+	function webGLStart()
+	{
+		canvas = document.getElementById("PathTraceCanvas");
+		initGL(canvas);
+		initBuffers();
+		initTextures();
+		
+		initShaders()
+
+		gl.clearColor(0.0, 0.0, 0.0, 1.0);
+		gl.clearDepth(1.0);
+		
+		//drawScene();
+	}
+
+	function display(){
+		drawScene();
+		if(mouseDown){
+			cameraPosition.x += ( mouseX - cameraPosition.x ) * .00005;
+			cameraPosition.y += (  mouseY - cameraPosition.y ) * .00005;
+			iterations = 0;
+		}
+        document.getElementById("fname").value = iterations;
+	}
+	function tick()
+	{
+		if (timer) {
+			clearInterval(timer);
+			timer = 0;
+		}
+		else {
+			timer = setInterval(display, 15);
+		}
+	}
+
+ 
+
+</script>
+</head>
+
+
+<body onload="webGLStart(); tick(); " style="height: 100%; margin: 0"> 
+    
+    <canvas id="PathTraceCanvas" style="border: none;" width="600" height="600"></canvas>
+	
+	<div id="info"></div>
+	<input type="text" name="fname" />
+	
+	 
+</body>
+
+</html>
